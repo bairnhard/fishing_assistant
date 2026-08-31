@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
@@ -27,16 +28,17 @@ async def async_setup_entry(
     async_add_entities,
 ):
     """Set up fishing assistant sensors from a config entry."""
-    data = config_entry.data
-    options = config_entry.options
+    # Options set via the OptionsFlow are stored in config_entry.options,
+    # not config_entry.data - merge them in (options win) so changes made
+    # through the options dialog (e.g. the fish list) actually take effect
+    # instead of silently being ignored on the next reload/restart.
+    data = {**config_entry.data, **config_entry.options}
 
     name = data["name"]
     lat = data["latitude"]
     lon = data["longitude"]
-    # fish/body_type can be changed later via the options flow, so options
-    # (when present) take precedence over the original data from setup.
-    fish_list = options.get("fish", data["fish"])
-    body_type = options.get("body_type", data["body_type"])
+    fish_list = data["fish"]
+    body_type = data["body_type"]
     timezone = data["timezone"]
     elevation = data["elevation"]
 
@@ -106,6 +108,21 @@ class FishScoreSensor(SensorEntity):
             "elevation": elevation,
         }
 
+    def _local_now(self) -> datetime.datetime:
+        """Return 'now' in this location's own timezone.
+
+        Using dt_util.now() (the Home Assistant instance's configured
+        timezone) is wrong here if the fishing spot is in a different
+        timezone than the HA server - around midnight, that mismatch
+        can shift 'today' by a whole day and mislabel best_window as
+        'Tomorrow' when it's actually today's window (or vice versa).
+        """
+        try:
+            tz = ZoneInfo(self._attrs["timezone"])
+        except Exception:
+            return dt_util.now()
+        return dt_util.now(tz)
+
     @property
     def name(self):
         """Return the friendly name of the sensor."""
@@ -142,7 +159,7 @@ class FishScoreSensor(SensorEntity):
         if not self._forecast:
             return res_attrs
 
-        now = dt_util.now()
+        now = self._local_now()
         today_str = now.strftime("%Y-%m-%d")
         tomorrow_str = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
         now_num = int(now.strftime("%H%M"))
@@ -176,7 +193,7 @@ class FishScoreSensor(SensorEntity):
 
     async def async_update(self):
         """Fetch the 7-day forecast (at most once per hour, on the hour marks)."""
-        now = dt_util.now()
+        now = self._local_now()
 
         if self._last_update_hour is not None:
             if now.hour not in UPDATE_HOURS or self._last_update_hour == now.hour:
