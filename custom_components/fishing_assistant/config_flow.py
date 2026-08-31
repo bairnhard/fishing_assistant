@@ -68,7 +68,7 @@ class FishingAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return FishingAssistantOptionsFlow(config_entry)
+        return FishingAssistantOptionsFlow()
     
     @staticmethod
     @callback
@@ -80,9 +80,6 @@ class FishingAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class FishingAssistantOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Fishing Assistant."""
-
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
