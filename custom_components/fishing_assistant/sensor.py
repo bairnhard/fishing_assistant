@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
@@ -219,3 +220,21 @@ class FishScoreSensor(SensorEntity):
     async def async_added_to_hass(self):
         """Run when entity about to be added to hass."""
         await self.async_update()
+
+        # extra_state_attributes (window_active / next_top_window) is only
+        # recomputed when HA writes the entity's state, which for a polling
+        # entity normally happens once per SCAN_INTERVAL (30 min). That's
+        # fine for fetching new forecast data, but it means a window's
+        # start/end can lag up to ~30 min behind real time. Re-write the
+        # state every minute - cheap, no API call - so those two attributes
+        # stay accurate without needing to poll (and re-fetch) more often.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._async_refresh_state, datetime.timedelta(minutes=1)
+            )
+        )
+
+    @callback
+    def _async_refresh_state(self, now=None):
+        """Re-write state so window_active/next_top_window reflect the current time."""
+        self.async_write_ha_state()
