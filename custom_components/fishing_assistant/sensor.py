@@ -98,7 +98,6 @@ class FishScoreSensor(SensorEntity):
             "manufacturer": "Fishing Assistant",
             "model": "Fish Score Sensor",
             "entry_type": "service",
-            "via_device": None            
         }
 
     async def async_update(self):
