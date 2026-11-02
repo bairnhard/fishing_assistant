@@ -14,7 +14,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def scale_score(score):
-    stretched = (score - 0.5) / (0.9 - 0.5) * 10
+    # `score` is a weight-normalised value in [0, 1] (weights sum to 1.0).
+    # A typical decent day sits around 0.70-0.80, so map the realistic
+    # 0.50-0.85 band onto 0-10 instead of the old 0.50-0.90 band, which
+    # combined with the best-3h-window daily score pinned almost every day at 10.
+    stretched = (score - 0.5) / (0.85 - 0.5) * 10
     return max(0, min(10, round(stretched)))
 
 
@@ -53,6 +57,12 @@ def get_profile_weights(body_type: str) -> dict:
             "moon": 0.07,
         })
 
+    # Normalise so the weights always sum to 1.0. Without this the per-body
+    # overrides above add to the base weights (e.g. "pond" summed to 1.2),
+    # inflating the raw score and pushing it past the top of the scale.
+    total = sum(weights.values())
+    weights = {k: v / total for k, v in weights.items()}
+
     return weights
 
 
@@ -74,7 +84,7 @@ async def get_fish_score_forecast(
     end_date = today + datetime.timedelta(days=6)
 
     # Get moon + sun event timings from Skyfield
-    astro_data = await calculate_astronomy_forecast(hass, lat, lon, days=7)
+    astro_data = await calculate_astronomy_forecast(hass, lat, lon, timezone, days=7)
 
     if not astro_data:
         return {}
@@ -159,8 +169,14 @@ async def get_fish_score_forecast(
                 best_avg = avg
                 best_window = (f"{scores[i][0]:02}:00", f"{scores[i+2][0]:02}:00")
 
+        # Daily score is the average of all hourly scores, not the best 3-hour
+        # window. The best window is still reported separately as "best_window".
+        # Using the best window as the daily score pinned nearly every day at
+        # the maximum, because dawn/dusk hours almost always score ~1.0.
+        day_mean = sum(s for _, s in scores) / len(scores) if scores else 0
+
         forecast[date_str] = {
-            "score": scale_score(best_avg),
+            "score": scale_score(day_mean),
             "best_window": f"{best_window[0]} – {best_window[1]}"
         }
         
